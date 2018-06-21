@@ -1,0 +1,291 @@
+import os, ospaths, osproc, parseopt, sequtils, streams, strutils
+
+type
+  BuildInfo = object
+    filename: string
+    name: string
+    author: string
+    version: string
+    icon: string
+
+    dkpPath: string
+
+    compilerPath: string
+    toolsPath: string
+
+    outDir: string
+    libs: string
+    includes: string
+
+    elfLocation: string
+
+proc execProc(cmd: string): string {.discardable.}=
+  result = ""
+  var
+    p = startProcess(cmd, options = {poStdErrToStdOut, poUsePath, poEvalCommand})
+
+    outp = outputStream(p)
+    line = newStringOfCap(120).TaintedString
+
+  while true:
+    if outp.readLine(line):
+      result.add(line)
+      result.add("\n")
+    elif not running(p): break
+
+  var x = p.peekExitCode()
+  if x != 0:
+    raise newException(
+      Exception,
+      "Command failed: " & $x &
+      "\nCMD: " & $cmd &
+      "\nRESULT: " & $result
+    )
+
+proc writeVersion() =
+  echo "Switch build version $version." % ["version", "0.1.0"]
+
+proc writeHelp() =
+  writeVersion()
+  echo """
+::
+    switch-build [options] project-file.nim
+
+Options:
+  -d, --devkitProPath:PATH  devkitpro installation path for switch-build.
+                            Required if DEVKITPRO environment var is unset
+  -c, --devkitCompilerPath:PATH
+                            the path where the binaries for the devkitpro
+                            compiler lives. (defaults to "$DKP/devkitA64/bin/")
+  -t, --tools:PATH          the devkitpro tools (defaults to "$DKP/tools/bin")
+  -o, --output:PATH         output files in a specified directory (defaults to "build")
+  -b, --build:TYPE          the type of output file you want (defaults to "all")
+                            and can be specified multiple times.
+                            TYPE is one of: "all", "nro", "nso", "pfs0", "nacp",
+                            or "lst"
+  -l, --libs:STR            additional linker args to pass to the compiler.
+                            Ex: --libs="-lsdl -Lpath/to/lib"
+
+  -i, --includes:STR        additional includes to pass to the compiler
+                            Ex: --includes="-Ipath/to/include -Ipath/to/another/include"
+  -n, --name:STR            the output file name to use. (defaults to input file name)
+  -a, --author:STR          sets the author name for the generate NRO and NACP file
+  -v, --version:STR         sets the version information for the generated NRO and NACP
+                            file
+  -p, --icon:PATH           sets the icon to use for the generated NRO and NACP
+                            (defaults to "$DKP/libnx/default_icon.jpg)
+  -h, --help                show this help
+
+Note, single letter options that take an argument require a colon. E.g. -p:PATH.
+  """
+
+proc buildElf(buildInfo: BuildInfo): string =
+  echo "Building elf file..."
+  let cmd = "nim c " &
+            "--os:nintendoswitch " & buildInfo.filename
+  execProc cmd
+
+  result = buildInfo.filename.splitFile().dir / buildInfo.name & ".elf"
+
+proc buildNso(buildInfo: BuildInfo): string =
+  let name = buildInfo.name
+
+  result = buildInfo.outDir / name & ".nso"
+
+  var cmd = buildInfo.toolsPath / "elf2nso "
+  cmd &= buildInfo.elfLocation & " " & result
+
+  execProc cmd
+
+
+proc buildPfs0(buildInfo: BuildInfo): string =
+  let nsoPath = buildNso(buildInfo)
+
+  let
+    name = buildInfo.name
+    outDir = buildInfo.outDir
+    toolsPath = buildInfo.toolsPath
+
+  result = outDir / name & ".pfs0"
+
+  createDir outDir & "/exefs"
+  copyFile nsoPath, outDir / "exefs/main"
+  execProc toolsPath / "build_pfs0 " & outDir / "exefs " & result
+
+proc buildLst(buildInfo: BuildInfo): string =
+  let
+    name = buildInfo.name
+    outDir = buildInfo.outDir
+    compDir = buildInfo.compilerPath
+
+  result = outDir / name & ".lst"
+  var cmd = compDir / "aarch64-none-elf-gcc-nm " & buildInfo.elfLocation
+  cmd &= " > " & result
+
+  execProc cmd
+
+proc buildNacp(buildInfo: BuildInfo): string =
+  let
+    name = buildInfo.name
+    outDir = buildInfo.outDir
+    toolsPath = buildInfo.toolsPath
+    author = buildInfo.author
+    version = buildInfo.version
+
+  result = outDir / name & ".nacp"
+
+  var cmd = toolsPath / "nacptool --create " & name
+  cmd &= " '" & author & "' '" & version & "' "
+  cmd &= result
+
+  execProc cmd
+
+proc buildNro(buildInfo: BuildInfo): string =
+  let nacpPath = buildNacp(buildInfo)
+  let
+    name = buildInfo.name
+    outDir = buildInfo.outDir
+    toolsPath = buildInfo.toolsPath
+    icon = buildInfo.icon
+    elfLocation = buildInfo.elfLocation
+
+  result = outDir / name & ".nro"
+
+  var cmd = toolsPath / "elf2nro " & elfLocation & " " & result
+  cmd &= " --icon=" & icon & " --nacp=" & nacpPath
+
+  execProc cmd
+
+proc buildAll(buildInfo: BuildInfo): seq[string] =
+  result = @[]
+  result.add buildNso(buildInfo)
+  result.add buildPfs0(buildInfo)
+  result.add buildLst(buildInfo)
+  result.add buildNacp(buildInfo)
+  result.add buildNro(buildInfo)
+
+
+proc build(buildType: string, buildInfo: BuildInfo): string =
+  echo "Building $#..." % buildType
+  case buildType:
+    of "all":
+      result = buildAll(buildInfo).join("\n")
+    of "nro":
+      result = buildNro(buildInfo)
+    of "nso":
+      result = buildNso(buildInfo)
+    of "pfs0":
+      result = buildPfs0(buildInfo)
+    of "nacp":
+      result = buildNacp(buildInfo)
+    of "lst":
+      result = buildLst(buildInfo)
+
+proc processArgs() =
+
+  let dkpEnv = "DEVKITPRO"
+
+  var buildInfo = BuildInfo(
+    filename: "",
+    name: "",
+    author: "",
+    version: "",
+    icon: "",
+
+    dkpPath: getEnv(dkpEnv),
+
+    compilerPath: "",
+    toolsPath: "",
+
+    outDir: "",
+    libs: "",
+    includes: ""
+  )
+
+  var buildTypes: seq[string] = @[]
+
+
+  for kind, key, val in getopt():
+    case kind
+    of cmdArgument:
+      buildInfo.filename = key
+    of cmdLongOption, cmdShortOption:
+      case key
+      of "devkitProPath", "d":
+        buildInfo.dkpPath = val
+        putEnv(dkpEnv, val)
+      of "devkitCompilerPath", "c":
+        buildInfo.compilerPath = val
+      of "output", "o":
+        buildInfo.outDir = val
+      of "tools", "t":
+        buildInfo.toolsPath = val
+      of "build", "b":
+        buildTypes.add(val)
+      of "libs", "l":
+        buildInfo.libs = val
+      of "includes", "i":
+        buildInfo.includes = val
+      of "name", "n":
+        buildInfo.name = val
+      of "icon", "p":
+        buildInfo.icon = val
+      of "version", "v":
+        buildInfo.version = val
+      of "help", "h":
+        writeHelp()
+        quit(0)
+    of cmdEnd: assert(false) # cannot happen
+
+  if buildInfo.filename == "":
+    # no filename has been given, so we show the help:
+    writeHelp()
+    quit(1)
+
+  if buildTypes.len == 0:
+    buildTypes.add("all")
+
+  if buildInfo.name == "":
+    buildInfo.name = buildInfo.filename.splitFile().name
+
+  if buildInfo.outDir == "":
+    buildInfo.outDir = "build"
+
+  if dirExists buildInfo.outDir:
+    removeDir buildInfo.outDir
+
+  createDir buildInfo.outDir
+
+  if buildInfo.dkpPath == "":
+    buildInfo.dkpPath = getEnv(dkpEnv, "")
+    if buildInfo.dkpPath == "" and not dkpEnv.existsEnv():
+      writeHelp()
+      raise newException(Exception, dkpEnv & " path must be set!")
+
+  if buildInfo.icon == "":
+    buildInfo.icon = buildInfo.dkpPath / "libnx/default_icon.jpg"
+
+  if buildInfo.compilerPath == "":
+    buildInfo.compilerPath = buildInfo.dkpPath / "devkitA64/bin"
+
+  if buildInfo.toolsPath == "":
+    buildInfo.toolsPath = buildInfo.dkpPath / "tools/bin"
+
+
+  putEnv("SWITCHLIBS", getEnv("SWITCHLIBS") & " " & buildInfo.libs)
+  putEnv("SWITCHINCLUDES", getEnv("SWITCHINCLUDES") & " " & buildInfo.includes)
+
+  buildInfo.elfLocation = buildElf(buildInfo)
+
+  # Build the files
+  for buildType in buildTypes:
+    let path = build(buildType, buildInfo)
+    echo "\nBuilt:"
+    echo path
+
+
+proc main() =
+  processArgs()
+
+when isMainModule:
+  main()
