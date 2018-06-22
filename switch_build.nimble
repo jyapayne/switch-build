@@ -10,7 +10,7 @@ srcDir = "src"
 bin = @["switch_build"]
 
 # Deps
-requires "nim >= 0.18.0", "libnx >= 0.1.0"
+requires "nim >= 0.18.0"
 
 task test, "Run tests":
   exec "nim c -r tests/test.nim"
