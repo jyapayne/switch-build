@@ -251,10 +251,8 @@ proc processArgs() =
   if buildInfo.outDir == "":
     buildInfo.outDir = "build"
 
-  if dirExists buildInfo.outDir:
-    removeDir buildInfo.outDir
-
-  createDir buildInfo.outDir
+  if not dirExists buildInfo.outDir:
+    createDir buildInfo.outDir
 
   if buildInfo.dkpPath == "":
     buildInfo.dkpPath = getEnv(dkpEnv, "")
