@@ -189,7 +189,7 @@ proc processArgs() =
     filename: "",
     name: "",
     author: "",
-    version: "",
+    version: "0.1.0",
     icon: "",
 
     dkpPath: getEnv(dkpEnv),
