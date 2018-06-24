@@ -17,9 +17,14 @@ type
     libs: string
     includes: string
 
+    force: bool
+    verbose: bool
+    release: bool
+
     elfLocation: string
 
-proc execProc(cmd: string): string {.discardable.}=
+
+proc execProc(cmd: string, verbose: bool=false): string {.discardable.}=
   result = ""
   var
     p = startProcess(cmd, options = {poStdErrToStdOut, poUsePath, poEvalCommand})
@@ -29,6 +34,8 @@ proc execProc(cmd: string): string {.discardable.}=
 
   while true:
     if outp.readLine(line):
+      if verbose:
+        echo line
       result.add(line)
       result.add("\n")
     elif not running(p): break
@@ -52,6 +59,9 @@ proc writeHelp() =
     switch-build [options] project-file.nim
 
 Options:
+  -f, --forceBuild          force compilation of files
+  -r, --release             compile in release mode (no stack traces, more efficient)
+  --verbose                 Stream output of compilation tasks
   -d, --devkitProPath:PATH  devkitpro installation path for switch-build.
                             Required if DEVKITPRO environment var is unset
   -c, --devkitCompilerPath:PATH
@@ -81,9 +91,18 @@ Note, single letter options that take an argument require a colon. E.g. -p:PATH.
 
 proc buildElf(buildInfo: BuildInfo): string =
   echo "Building elf file..."
-  let cmd = "nim c " &
+  var cmd = "nim $args c " &
             "--os:nintendoswitch " & buildInfo.filename
-  execProc cmd
+
+  var args = ""
+  if buildInfo.release:
+    args &= " -d:release"
+  if buildInfo.force:
+    args &= " -f"
+
+  cmd = cmd % ["args", args]
+
+  execProc cmd, buildInfo.verbose
 
   result = buildInfo.filename.splitFile().dir / buildInfo.name & ".elf"
 
@@ -95,7 +114,7 @@ proc buildNso(buildInfo: BuildInfo): string =
   var cmd = buildInfo.toolsPath / "elf2nso "
   cmd &= buildInfo.elfLocation & " " & result
 
-  execProc cmd
+  execProc cmd, buildInfo.verbose
 
 
 proc buildPfs0(buildInfo: BuildInfo): string =
@@ -122,7 +141,7 @@ proc buildLst(buildInfo: BuildInfo): string =
   var cmd = compDir / "aarch64-none-elf-gcc-nm " & buildInfo.elfLocation
   cmd &= " > " & result
 
-  execProc cmd
+  execProc cmd, buildInfo.verbose
 
 proc buildNacp(buildInfo: BuildInfo): string =
   let
@@ -138,7 +157,7 @@ proc buildNacp(buildInfo: BuildInfo): string =
   cmd &= " '" & author & "' '" & version & "' "
   cmd &= result
 
-  execProc cmd
+  execProc cmd, buildInfo.verbose
 
 proc buildNro(buildInfo: BuildInfo): string =
   let nacpPath = buildNacp(buildInfo)
@@ -154,7 +173,7 @@ proc buildNro(buildInfo: BuildInfo): string =
   var cmd = toolsPath / "elf2nro " & elfLocation & " " & result
   cmd &= " --icon=" & icon & " --nacp=" & nacpPath
 
-  execProc cmd
+  execProc cmd, buildInfo.verbose
 
 proc buildAll(buildInfo: BuildInfo): seq[string] =
   result = @[]
@@ -232,6 +251,12 @@ proc processArgs() =
         buildInfo.icon = val
       of "version", "v":
         buildInfo.version = val
+      of "forceBuild", "f":
+        buildInfo.force = true
+      of "release", "r":
+        buildInfo.release = true
+      of "verbose":
+        buildInfo.verbose = true
       of "help", "h":
         writeHelp()
         quit(0)
