@@ -272,6 +272,8 @@ proc processArgs() =
         buildInfo.icon = val.sanitizePath()
       of "version", "v":
         buildInfo.version = val
+      of "author", "a":
+        buildInfo.author = val
       of "forceBuild", "f":
         buildInfo.force = true
       of "release", "r":
