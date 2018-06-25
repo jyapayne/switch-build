@@ -12,6 +12,7 @@ type
 
     compilerPath: string
     toolsPath: string
+    romfsPath: string
 
     outDir: string
     libs: string
@@ -27,10 +28,16 @@ type
 proc execProc(cmd: string, verbose: bool=false): string {.discardable.}=
   result = ""
   var
-    p = startProcess(cmd, options = {poStdErrToStdOut, poUsePath, poEvalCommand})
+    p = startProcess(
+      cmd,
+      options={poStdErrToStdOut, poUsePath, poEvalCommand}
+    )
 
     outp = outputStream(p)
     line = newStringOfCap(120).TaintedString
+
+  if verbose:
+    echo "Executing command: " & cmd
 
   while true:
     if outp.readLine(line):
@@ -82,6 +89,7 @@ Options:
   -a, --author:STR          sets the author name for the generate NRO and NACP file
   -v, --version:STR         sets the version information for the generated NRO and NACP
                             file
+  -q, --romfsPath:PATH      Path to use to build in a romfs image
   -p, --icon:PATH           sets the icon to use for the generated NRO and NACP
                             (defaults to "$DKP/libnx/default_icon.jpg)
   -h, --help                show this help
@@ -92,7 +100,7 @@ Note, single letter options that take an argument require a colon. E.g. -p:PATH.
 proc buildElf(buildInfo: BuildInfo): string =
   echo "Building elf file..."
   var cmd = "nim $args c " &
-            "--os:nintendoswitch " & buildInfo.filename
+            "--os:nintendoswitch " & buildInfo.filename.quoteShell
 
   var args = ""
   if buildInfo.release:
@@ -173,6 +181,9 @@ proc buildNro(buildInfo: BuildInfo): string =
   var cmd = toolsPath / "elf2nro " & elfLocation & " " & result
   cmd &= " --icon=" & icon & " --nacp=" & nacpPath
 
+  if buildInfo.romfsPath != "":
+    cmd &= " --romfsdir=" & buildInfo.romfsPath
+
   execProc cmd, buildInfo.verbose
 
 proc buildAll(buildInfo: BuildInfo): seq[string] =
@@ -200,6 +211,9 @@ proc build(buildType: string, buildInfo: BuildInfo): string =
     of "lst":
       result = buildLst(buildInfo)
 
+proc sanitizePath(path: string): string =
+  path.expandFilename().quoteShell()
+
 proc processArgs() =
 
   let dkpEnv = "DEVKITPRO"
@@ -215,10 +229,17 @@ proc processArgs() =
 
     compilerPath: "",
     toolsPath: "",
+    romfsPath: "",
 
     outDir: "",
     libs: "",
-    includes: ""
+    includes: "",
+
+    force: false,
+    verbose: false,
+    release: false,
+
+    elfLocation: ""
   )
 
   var buildTypes: seq[string] = @[]
@@ -227,7 +248,7 @@ proc processArgs() =
   for kind, key, val in getopt():
     case kind
     of cmdArgument:
-      buildInfo.filename = key
+      buildInfo.filename = key.sanitizePath()
     of cmdLongOption, cmdShortOption:
       case key
       of "devkitProPath", "d":
@@ -236,9 +257,9 @@ proc processArgs() =
       of "devkitCompilerPath", "c":
         buildInfo.compilerPath = val
       of "output", "o":
-        buildInfo.outDir = val
+        buildInfo.outDir = val.sanitizePath()
       of "tools", "t":
-        buildInfo.toolsPath = val
+        buildInfo.toolsPath = val.sanitizePath()
       of "build", "b":
         buildTypes.add(val)
       of "libs", "l":
@@ -248,18 +269,24 @@ proc processArgs() =
       of "name", "n":
         buildInfo.name = val
       of "icon", "p":
-        buildInfo.icon = val
+        buildInfo.icon = val.sanitizePath()
       of "version", "v":
         buildInfo.version = val
       of "forceBuild", "f":
         buildInfo.force = true
       of "release", "r":
         buildInfo.release = true
+      of "romfsPath", "romfsDir", "q":
+        buildInfo.romfsPath = val.sanitizePath()
       of "verbose":
         buildInfo.verbose = true
       of "help", "h":
         writeHelp()
         quit(0)
+      else:
+        writeHelp()
+        echo "Error invalid argument: \"" & key & "\""
+        quit(1)
     of cmdEnd: assert(false) # cannot happen
 
   if buildInfo.filename == "":
@@ -274,13 +301,13 @@ proc processArgs() =
     buildInfo.name = buildInfo.filename.splitFile().name
 
   if buildInfo.outDir == "":
-    buildInfo.outDir = "build"
+    buildInfo.outDir = expandFilename("build")
 
   if not dirExists buildInfo.outDir:
     createDir buildInfo.outDir
 
   if buildInfo.dkpPath == "":
-    buildInfo.dkpPath = getEnv(dkpEnv, "")
+    buildInfo.dkpPath = getEnv(dkpEnv, "").sanitizePath()
     if buildInfo.dkpPath == "" and not dkpEnv.existsEnv():
       writeHelp()
       raise newException(Exception, dkpEnv & " path must be set!")
@@ -297,6 +324,8 @@ proc processArgs() =
 
   putEnv("SWITCHLIBS", getEnv("SWITCHLIBS") & " " & buildInfo.libs)
   putEnv("SWITCHINCLUDES", getEnv("SWITCHINCLUDES") & " " & buildInfo.includes)
+
+  echo "Building: $#..." % buildInfo.filename
 
   buildInfo.elfLocation = buildElf(buildInfo)
 
