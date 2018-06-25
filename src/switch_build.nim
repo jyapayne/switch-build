@@ -336,7 +336,7 @@ proc processArgs() =
     let path = build(buildType, buildInfo)
     echo "\nBuilt:"
     echo path
-
+  echo ""
 
 proc main() =
   processArgs()
