@@ -107,6 +107,10 @@ proc buildElf(buildInfo: BuildInfo): string =
     args &= " -d:release"
   if buildInfo.force:
     args &= " -f"
+  if buildInfo.libs != "":
+    args &= " --passL='" & buildInfo.libs & "'"
+  if buildInfo.includes != "":
+    args &= " --passC='" & buildInfo.includes & "'"
 
   cmd = cmd % ["args", args]
 
@@ -325,8 +329,8 @@ proc processArgs() =
     buildInfo.toolsPath = buildInfo.dkpPath / "tools/bin"
 
 
-  putEnv("SWITCHLIBS", getEnv("SWITCHLIBS") & " " & buildInfo.libs)
-  putEnv("SWITCHINCLUDES", getEnv("SWITCHINCLUDES") & " " & buildInfo.includes)
+  putEnv("SWITCH_LIBS", getEnv("SWITCH_LIBS") & " " & buildInfo.libs)
+  putEnv("SWITCH_INCLUDES", getEnv("SWITCH_INCLUDES") & " " & buildInfo.includes)
 
   echo "Building: $#..." % buildInfo.filename
 
