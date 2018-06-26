@@ -303,10 +303,11 @@ proc processArgs() =
     buildInfo.name = buildInfo.filename.splitFile().name
 
   if buildInfo.outDir == "":
-    buildInfo.outDir = expandFilename("build")
+    buildInfo.outDir = "build"
 
   if not dirExists buildInfo.outDir:
     createDir buildInfo.outDir
+    buildInfo.outDir = expandFilename(buildInfo.outDir)
 
   if buildInfo.dkpPath == "":
     buildInfo.dkpPath = getEnv(dkpEnv, "").sanitizePath()
