@@ -102,7 +102,10 @@ proc buildElf(buildInfo: BuildInfo): string =
   var cmd = "nim $args c " &
             "--os:nintendoswitch " & buildInfo.filename.quoteShell
 
-  var args = ""
+  result = buildInfo.outDir/buildInfo.name & ".elf"
+
+  var args = " --out=" & quoteShell(result)
+  args &= " --nimcache=nimcache"
   if buildInfo.release:
     args &= " -d:release"
   if buildInfo.force:
@@ -113,10 +116,7 @@ proc buildElf(buildInfo: BuildInfo): string =
     args &= " --passC='" & buildInfo.includes & "'"
 
   cmd = cmd % ["args", args]
-
   execProc cmd, buildInfo.verbose
-
-  result = buildInfo.filename.splitFile().dir / buildInfo.name & ".elf"
 
 proc buildNso(buildInfo: BuildInfo): string =
   let name = buildInfo.name
