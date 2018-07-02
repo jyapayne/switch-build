@@ -24,6 +24,8 @@ type
 
     elfLocation: string
 
+    nimCompilerArgs: string
+
 
 proc execProc(cmd: string, verbose: bool=false): string {.discardable.}=
   result = ""
@@ -92,6 +94,7 @@ Options:
   -q, --romfsPath:PATH      Path to use to build in a romfs image
   -p, --icon:PATH           sets the icon to use for the generated NRO and NACP
                             (defaults to "$DKP/libnx/default_icon.jpg)
+  --nimCompilerArgs: STR    Args to pass to the nim compiler
   -h, --help                show this help
 
 Note, single letter options that take an argument require a colon. E.g. -p:PATH.
@@ -114,6 +117,7 @@ proc buildElf(buildInfo: BuildInfo): string =
     args &= " --passL='" & buildInfo.libs & "'"
   if buildInfo.includes != "":
     args &= " --passC='" & buildInfo.includes & "'"
+  args &= " " & buildInfo.nimCompilerArgs
 
   cmd = cmd % ["args", args]
   execProc cmd, buildInfo.verbose
@@ -243,7 +247,8 @@ proc processArgs() =
     verbose: false,
     release: false,
 
-    elfLocation: ""
+    elfLocation: "",
+    nimCompilerArgs: ""
   )
 
   var buildTypes: seq[string] = @[]
@@ -284,6 +289,8 @@ proc processArgs() =
         buildInfo.release = true
       of "romfsPath", "romfsDir", "q":
         buildInfo.romfsPath = val.sanitizePath()
+      of "nimCompilerArgs":
+        buildInfo.nimCompilerArgs = val
       of "verbose":
         buildInfo.verbose = true
       of "help", "h":
