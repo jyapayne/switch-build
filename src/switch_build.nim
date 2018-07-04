@@ -108,7 +108,7 @@ proc buildElf(buildInfo: BuildInfo): string =
   result = buildInfo.outDir/buildInfo.name & ".elf"
 
   var args = " --out=" & quoteShell(result)
-  args &= " --nimcache=nimcache_" & $buildInfo.name
+  args &= " --nimcache=nimcache/" & $buildInfo.name
   if buildInfo.release:
     args &= " -d:release"
   if buildInfo.force:
