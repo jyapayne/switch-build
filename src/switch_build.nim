@@ -9,6 +9,7 @@ type
     icon: string
 
     dkpPath: string
+    libnxPath: string
 
     compilerPath: string
     toolsPath: string
@@ -67,34 +68,41 @@ proc writeHelp() =
 ::
     switch-build [options] project-file.nim
 
+Note:
+  $DKP refers to the devkitpro path, set either by env vars or
+  the command line options.
+
 Options:
-  -f, --forceBuild          force compilation of files
-  -r, --release             compile in release mode (no stack traces, more efficient)
+  -f, --forceBuild          Force compilation of files
+  -r, --release             Compile in release mode (no stack traces, more efficient)
   --verbose                 Stream output of compilation tasks
-  -d, --devkitProPath:PATH  devkitpro installation path for switch-build.
+  -x, --libnxPath:PATH      The path where your libnx libraries live. (default is
+                            $DKP/libnx). Useful for development of custom libnx
+                            features
+  -d, --devkitProPath:PATH  Devkitpro installation path for switch-build.
                             Required if DEVKITPRO environment var is unset
   -c, --devkitCompilerPath:PATH
-                            the path where the binaries for the devkitpro
+                            The path where the binaries for the devkitpro
                             compiler lives. (defaults to "$DKP/devkitA64/bin/")
-  -t, --tools:PATH          the devkitpro tools (defaults to "$DKP/tools/bin")
-  -o, --output:PATH         output files in a specified directory (defaults to "build")
-  -b, --build:TYPE          the type of output file you want (defaults to "all")
+  -t, --tools:PATH          The devkitpro tools (defaults to "$DKP/tools/bin")
+  -o, --output:PATH         Output files in a specified directory (defaults to "build")
+  -b, --build:TYPE          The type of output file you want (defaults to "all")
                             and can be specified multiple times.
                             TYPE is one of: "all", "nro", "nso", "pfs0", "nacp",
                             or "lst"
-  -l, --libs:STR            additional linker args to pass to the compiler.
+  -l, --libs:STR            Additional linker args to pass to the compiler.
                             Ex: --libs="-lsdl -Lpath/to/lib"
 
-  -i, --includes:STR        additional includes to pass to the compiler
+  -i, --includes:STR        Additional includes to pass to the compiler
                             Ex: --includes="-Ipath/to/include -Ipath/to/another/include"
-  -n, --name:STR            the output file name to use. (defaults to input file name)
-  -a, --author:STR          sets the author name for the generate NRO and NACP file
-  -v, --version:STR         sets the version information for the generated NRO and NACP
+  -n, --name:STR            The output file name to use. (defaults to input file name)
+  -a, --author:STR          Sets the author name for the generate NRO and NACP file
+  -v, --version:STR         Sets the version information for the generated NRO and NACP
                             file
   -q, --romfsPath:PATH      Path to use to build in a romfs image
-  -p, --icon:PATH           sets the icon to use for the generated NRO and NACP
+  -p, --icon:PATH           Sets the icon to use for the generated NRO and NACP
                             (defaults to "$DKP/libnx/default_icon.jpg)
-  --nimCompilerArgs: STR    Args to pass to the nim compiler
+  --nimCompilerArgs:STR     Args to pass to the nim compiler
   -h, --help                show this help
 
 Note, single letter options that take an argument require a colon. E.g. -p:PATH.
@@ -234,6 +242,7 @@ proc processArgs() =
     icon: "",
 
     dkpPath: getEnv(dkpEnv),
+    libnxPath: "",
 
     compilerPath: "",
     toolsPath: "",
@@ -265,6 +274,8 @@ proc processArgs() =
         putEnv(dkpEnv, val)
       of "devkitCompilerPath", "c":
         buildInfo.compilerPath = val
+      of "libnxPath", "x":
+        buildInfo.libnxPath = val.sanitizePath()
       of "output", "o":
         buildInfo.outDir = val.sanitizePath()
       of "tools", "t":
@@ -303,8 +314,8 @@ proc processArgs() =
     of cmdEnd: assert(false) # cannot happen
 
   if buildInfo.filename == "":
-    # no filename has been given, so we show the help:
     writeHelp()
+    echo "filename argument was expected!"
     quit(1)
 
   if buildTypes.len == 0:
@@ -314,7 +325,7 @@ proc processArgs() =
     buildInfo.name = buildInfo.filename.splitFile().name
 
   if buildInfo.outDir == "":
-    buildInfo.outDir = "build"
+    buildInfo.outDir = "build" / buildInfo.name
 
   if not dirExists buildInfo.outDir:
     createDir buildInfo.outDir
@@ -322,22 +333,39 @@ proc processArgs() =
 
   if buildInfo.dkpPath == "":
     buildInfo.dkpPath = getEnv(dkpEnv, "").sanitizePath()
-    if buildInfo.dkpPath == "" and not dkpEnv.existsEnv():
+    let exists = buildInfo.dkpPath.dirExists()
+    if buildInfo.dkpPath == "" and not dkpEnv.existsEnv() and exists:
       writeHelp()
-      raise newException(Exception, dkpEnv & " path must be set!")
+      raise newException(
+        Exception,
+        dkpEnv & " environment var must be set and be an existing path or " &
+        "--devkitProPath must be set in the command line arguments."
+      )
+
+  if buildInfo.libnxPath == "":
+    buildInfo.libnxPath = buildInfo.dkpPath / "libnx"
+    if not buildInfo.libnxPath.dirExists():
+      try:
+        buildInfo.libnxPath = execProc("nimble path libnx") / "src/libnx/wrapper/nx"
+      except Exception:
+        raise newException(Exception,
+          "Could not find a suitable libnx install. " &
+          "Make sure libnx is installed in $DEVKITPRO/libnx or " &
+          "you have --libnxPath set in the command line arguments.")
+
+  buildInfo.includes &= getEnv("SWITCH_INCLUDES") & " -I" & buildInfo.libnxPath / "include"
+  buildInfo.libs &= getEnv("SWITCH_LIBS")
+  buildInfo.libs &= " -specs=" & buildInfo.libnxPath / "switch.specs"
+  buildInfo.libs &= " -L" & buildInfo.libnxPath / "lib -lnx"
 
   if buildInfo.icon == "":
-    buildInfo.icon = buildInfo.dkpPath / "libnx/default_icon.jpg"
+    buildInfo.icon = buildInfo.libnxPath / "default_icon.jpg"
 
   if buildInfo.compilerPath == "":
     buildInfo.compilerPath = buildInfo.dkpPath / "devkitA64/bin"
 
   if buildInfo.toolsPath == "":
     buildInfo.toolsPath = buildInfo.dkpPath / "tools/bin"
-
-
-  putEnv("SWITCH_LIBS", getEnv("SWITCH_LIBS") & " " & buildInfo.libs)
-  putEnv("SWITCH_INCLUDES", getEnv("SWITCH_INCLUDES") & " " & buildInfo.includes)
 
   echo "Building: $#..." % buildInfo.filename
 
