@@ -60,7 +60,7 @@ proc execProc(cmd: string, verbose: bool=false): string {.discardable.}=
     )
 
 proc writeVersion() =
-  echo "Switch build version $version." % ["version", "0.1.0"]
+  echo "Switch build version $version." % ["version", "0.1.2"]
 
 proc writeHelp() =
   writeVersion()
