@@ -28,7 +28,12 @@ type
     nimCompilerArgs: string
 
 
-proc execProc(cmd: string, verbose: bool=false): string {.discardable.}=
+proc execProc(command: string, verbose: bool=false): string {.discardable.} =
+
+  var cmd = command
+  when defined(windows):
+    cmd = "cmd /c " & cmd.quoteShell
+
   result = ""
   var
     p = startProcess(
@@ -60,7 +65,7 @@ proc execProc(cmd: string, verbose: bool=false): string {.discardable.}=
     )
 
 proc writeVersion() =
-  echo "Switch build version $version." % ["version", "0.1.2"]
+  echo "Switch build version $version." % ["version", "0.1.3"]
 
 proc writeHelp() =
   writeVersion()
@@ -116,15 +121,15 @@ proc buildElf(buildInfo: BuildInfo): string =
   result = buildInfo.outDir/buildInfo.name & ".elf"
 
   var args = " --out=" & quoteShell(result)
-  args &= " --nimcache=nimcache/" & $buildInfo.name
+  args &= " --nimcache=nimcache" / buildInfo.name.quoteShell
   if buildInfo.release:
     args &= " -d:release"
   if buildInfo.force:
     args &= " -f"
   if buildInfo.libs != "":
-    args &= " --passL='" & buildInfo.libs & "'"
+    args &= " --passL=" & buildInfo.libs.quoteShell
   if buildInfo.includes != "":
-    args &= " --passC='" & buildInfo.includes & "'"
+    args &= " --passC=" & buildInfo.includes.quoteShell
   args &= " " & buildInfo.nimCompilerArgs
 
   cmd = cmd % ["args", args]
@@ -133,9 +138,9 @@ proc buildElf(buildInfo: BuildInfo): string =
 proc buildNso(buildInfo: BuildInfo): string =
   let name = buildInfo.name
 
-  result = buildInfo.outDir / name & ".nso"
+  result = (buildInfo.outDir / name & ".nso").quoteShell
 
-  var cmd = buildInfo.toolsPath / "elf2nso "
+  var cmd = (buildInfo.toolsPath / "elf2nso").quoteShell & " "
   cmd &= buildInfo.elfLocation & " " & result
 
   execProc cmd, buildInfo.verbose
@@ -149,11 +154,12 @@ proc buildPfs0(buildInfo: BuildInfo): string =
     outDir = buildInfo.outDir
     toolsPath = buildInfo.toolsPath
 
-  result = outDir / name & ".pfs0"
+  result = (outDir / name & ".pfs0").quoteShell
 
   createDir outDir & "/exefs"
   copyFile nsoPath, outDir / "exefs/main"
-  execProc toolsPath / "build_pfs0 " & outDir / "exefs " & result
+  execProc (toolsPath / "build_pfs0").quoteShell & " " &
+            (outDir / "exefs").quoteShell & " " & result
 
 proc buildLst(buildInfo: BuildInfo): string =
   let
@@ -161,8 +167,9 @@ proc buildLst(buildInfo: BuildInfo): string =
     outDir = buildInfo.outDir
     compDir = buildInfo.compilerPath
 
-  result = outDir / name & ".lst"
-  var cmd = compDir / "aarch64-none-elf-gcc-nm " & buildInfo.elfLocation
+  result = (outDir / name & ".lst").quoteShell
+  var cmd = (compDir / "aarch64-none-elf-gcc-nm").quoteShell & " " &
+            buildInfo.elfLocation
   cmd &= " > " & result
 
   execProc cmd, buildInfo.verbose
@@ -175,11 +182,11 @@ proc buildNacp(buildInfo: BuildInfo): string =
     author = buildInfo.author
     version = buildInfo.version
 
-  result = outDir / name & ".nacp"
+  result = (outDir / name & ".nacp").quoteShell
 
-  var cmd = toolsPath / "nacptool --create " & name
-  cmd &= " '" & author & "' '" & version & "' "
-  cmd &= result
+  var cmd = (toolsPath / "nacptool").quoteShell & " --create " & name.quoteShell
+  cmd &= " " & author.quoteShell & " " & version.quoteShell
+  cmd &= " " & result
 
   execProc cmd, buildInfo.verbose
 
@@ -192,13 +199,13 @@ proc buildNro(buildInfo: BuildInfo): string =
     icon = buildInfo.icon
     elfLocation = buildInfo.elfLocation
 
-  result = outDir / name & ".nro"
+  result = (outDir / name & ".nro").quoteShell
 
-  var cmd = toolsPath / "elf2nro " & elfLocation & " " & result
-  cmd &= " --icon=" & icon & " --nacp=" & nacpPath
+  var cmd = (toolsPath / "elf2nro").quoteShell & " " & elfLocation & " " & result
+  cmd &= " --icon=" & icon & " --nacp=" & nacpPath.quoteShell
 
   if buildInfo.romfsPath != "":
-    cmd &= " --romfsdir=" & buildInfo.romfsPath
+    cmd &= " --romfsdir=" & buildInfo.romfsPath.quoteShell
 
   execProc cmd, buildInfo.verbose
 
@@ -275,11 +282,11 @@ proc processArgs() =
       of "devkitCompilerPath", "c":
         buildInfo.compilerPath = val
       of "libnxPath", "x":
-        buildInfo.libnxPath = val.sanitizePath()
+        buildInfo.libnxPath = val.expandFilename()
       of "output", "o":
-        buildInfo.outDir = val.sanitizePath()
+        buildInfo.outDir = val.expandFilename()
       of "tools", "t":
-        buildInfo.toolsPath = val.sanitizePath()
+        buildInfo.toolsPath = val.expandFilename()
       of "build", "b":
         buildTypes.add(val)
       of "libs", "l":
@@ -289,7 +296,7 @@ proc processArgs() =
       of "name", "n":
         buildInfo.name = val
       of "icon", "p":
-        buildInfo.icon = val.sanitizePath()
+        buildInfo.icon = val.expandFilename()
       of "version", "v":
         buildInfo.version = val
       of "author", "a":
@@ -299,7 +306,7 @@ proc processArgs() =
       of "release", "r":
         buildInfo.release = true
       of "romfsPath", "romfsDir", "q":
-        buildInfo.romfsPath = val.sanitizePath()
+        buildInfo.romfsPath = val.expandFilename()
       of "nimCompilerArgs":
         buildInfo.nimCompilerArgs = val
       of "verbose":
@@ -329,10 +336,9 @@ proc processArgs() =
 
   if not dirExists buildInfo.outDir:
     createDir buildInfo.outDir
-    buildInfo.outDir = expandFilename(buildInfo.outDir)
 
   if buildInfo.dkpPath == "":
-    buildInfo.dkpPath = getEnv(dkpEnv, "").sanitizePath()
+    buildInfo.dkpPath = getEnv(dkpEnv, "")
     let exists = buildInfo.dkpPath.dirExists()
     if buildInfo.dkpPath == "" and not dkpEnv.existsEnv() and exists:
       writeHelp()
@@ -353,13 +359,13 @@ proc processArgs() =
           "Make sure libnx is installed in $DEVKITPRO/libnx or " &
           "you have --libnxPath set in the command line arguments.")
 
-  buildInfo.includes &= getEnv("SWITCH_INCLUDES") & " -I" & buildInfo.libnxPath / "include"
-  buildInfo.libs &= getEnv("SWITCH_LIBS")
-  buildInfo.libs &= " -specs=" & buildInfo.libnxPath / "switch.specs"
-  buildInfo.libs &= " -L" & buildInfo.libnxPath / "lib -lnx"
+  buildInfo.includes &= getEnv("SWITCH_INCLUDES") & " -I" & (buildInfo.libnxPath / "include").quoteShell
+  buildInfo.libs &= " " & getEnv("SWITCH_LIBS")
+  buildInfo.libs &= " -specs=" & (buildInfo.libnxPath / "switch.specs").quoteShell
+  buildInfo.libs &= " -L" & (buildInfo.libnxPath / "lib").quoteShell & " -lnx"
 
   if buildInfo.icon == "":
-    buildInfo.icon = buildInfo.libnxPath / "default_icon.jpg"
+    buildInfo.icon = (buildInfo.libnxPath / "default_icon.jpg").quoteShell
 
   if buildInfo.compilerPath == "":
     buildInfo.compilerPath = buildInfo.dkpPath / "devkitA64/bin"
