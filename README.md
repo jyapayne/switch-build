@@ -1,11 +1,68 @@
 # switch-build
-Build switch homebrew apps the easy way
+Build switch homebrew apps the easy way.
+
+# Install prerequisites
+
+You need the latest devel Nim compiler with Nintendo Switch support and you need [nim-libnx](https://github.com/jyapayne/nim-libnx) in order to compile (see examples in the libnx.nimble file).
+
+In order for switch-build to work, you'll need DevkitPro and you'll need to modify some environment variables if you're on Windows.
+
+DevkitPro can be installed via this links: [Mac and Linux](https://github.com/devkitPro/pacman/releases) or [Windows](https://github.com/devkitPro/installer/releases). Install with the Switch development support.
+
+Once you have DevkitPro installed, the DEVKITPRO environment variable must exist and it must point to a valid directory. This isn't an issue on Unix platforms, but on Windows it's a bit more finicky with the default installer.
+
+On Unix platforms (Mac/Linux), simply add:
+
+```bash
+export DEVKITPRO="/path/to/devkitpro/root"
+# Default is "/opt/devkitpro"
+```
+
+to your `.bashrc` or similar shell/login init script.
+
+On Windows, the DevkitPro installer will set environment variables for you, but they will be invalid from a default cmd.exe or powershell instance. You'll need to edit the DevkitPro environment variable to be a valid path. Change it from:
+
+```bash
+DEVKITPRO: /opt/devkitpro
+```
+
+to something like:
+
+```bash
+DEVKITPRO: C:\devkitPro
+```
+
+Or where ever you installed it. Once that is set, everything should work fine in Windows.
+
+# Install
+
+Simply install the latest devel Nim compiler and the Nim tools (with the nimble package manager) and run:
+
+```bash
+nimble install switch_build
+```
+
+# Usage
+
+Basic usage:
+
+```bash
+switch_build --author="My Name" --version="1.0.0" examples/helloworld/helloworld.nim
+```
+
+See [here](https://github.com/jyapayne/nim-libnx/blob/master/libnx.nimble#L27) for more examples. Also run:
+
+```bash
+switch_build --help
+```
+
+for more options and configuration.
 
 # Options
 
 ```bash
 $ switch_build --help
-Switch build version 0.1.2.
+Switch build version 0.1.3
 ::
     switch-build [options] project-file.nim
 
