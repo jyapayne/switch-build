@@ -84,6 +84,7 @@ Options:
                             compiler lives. (defaults to "$DKP/devkitA64/bin/")
   -t, --tools:PATH          The devkitpro tools (defaults to "$DKP/tools/bin")
   -o, --output:PATH         Output files in a specified directory (defaults to "build")
+  -S, --staticLib           Build static library ("*.a")
   -b, --build:TYPE          The type of output file you want (defaults to "all")
                             and can be specified multiple times.
                             TYPE is one of: "all", "nro", "nso", "pfs0", "nacp",
