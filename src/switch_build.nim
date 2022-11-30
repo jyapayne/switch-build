@@ -27,6 +27,7 @@ type
 
     nimCompilerArgs: string
 
+type OperationModes = enum default, staticLib
 
 proc execProc(command: string, verbose: bool=false): string {.discardable.} =
 
@@ -65,7 +66,7 @@ proc execProc(command: string, verbose: bool=false): string {.discardable.} =
     )
 
 proc writeVersion() =
-  echo "Switch build version $version." % ["version", "0.1.3"]
+  echo "Switch build version $version." % ["version", "0.1.4"]
 
 proc writeHelp() =
   writeVersion()
@@ -91,6 +92,7 @@ Options:
                             compiler lives. (defaults to "$DKP/devkitA64/bin/")
   -t, --tools:PATH          The devkitpro tools (defaults to "$DKP/tools/bin")
   -o, --output:PATH         Output files in a specified directory (defaults to "build")
+  -S, --staticLib           Build static library ("*.a")
   -b, --build:TYPE          The type of output file you want (defaults to "all")
                             and can be specified multiple times.
                             TYPE is one of: "all", "nro", "nso", "pfs0", "nacp",
@@ -172,6 +174,30 @@ proc buildLst(buildInfo: BuildInfo): string =
             buildInfo.elfLocation
   cmd &= " > " & result
 
+  execProc cmd, buildInfo.verbose
+
+proc buildStaticLib(buildInfo: BuildInfo): string =
+  echo "Building static lib file..."
+  var cmd = "nim $args c " &
+            "--os:nintendoswitch " & buildInfo.filename.quoteShell
+
+  result = buildInfo.outDir/"lib" & buildInfo.name & ".a"
+
+  var args = " --out=" & quoteShell(result)
+  args &= " --nimcache=nimcache" / buildInfo.name.quoteShell
+  if buildInfo.release:
+    args &= " -d:release"
+  if buildInfo.force:
+    args &= " -f"
+  if buildInfo.libs != "":
+    args &= " --passL=" & buildInfo.libs.quoteShell
+  if buildInfo.includes != "":
+    args &= " --passC=" & buildInfo.includes.quoteShell
+  args &= " " & "--app:staticlib"
+  args &= " " & "--noMain"
+  args &= " " & buildInfo.nimCompilerArgs
+
+  cmd = cmd % ["args", args]
   execProc cmd, buildInfo.verbose
 
 proc buildNacp(buildInfo: BuildInfo): string =
@@ -267,7 +293,9 @@ proc processArgs() =
     nimCompilerArgs: ""
   )
 
-  var buildTypes: seq[string] = @[]
+  var
+    buildTypes: seq[string] = @[]
+    mode = OperationModes.default
 
 
   for kind, key, val in getopt():
@@ -287,6 +315,8 @@ proc processArgs() =
         buildInfo.outDir = val.expandFilename()
       of "tools", "t":
         buildInfo.toolsPath = val.expandFilename()
+      of "staticLib", "S":
+        mode = OperationModes.staticLib
       of "build", "b":
         buildTypes.add(val)
       of "libs", "l":
@@ -374,15 +404,18 @@ proc processArgs() =
     buildInfo.toolsPath = buildInfo.dkpPath / "tools/bin"
 
   echo "Building: $#..." % buildInfo.filename
+  case mode:
+    of OperationModes.default:
+      buildInfo.elfLocation = buildElf(buildInfo)
 
-  buildInfo.elfLocation = buildElf(buildInfo)
-
-  # Build the files
-  for buildType in buildTypes:
-    let path = build(buildType, buildInfo)
-    echo "\nBuilt:"
-    echo path
-  echo ""
+      # Build the files
+      for buildType in buildTypes:
+        let path = build(buildType, buildInfo)
+        echo "\nBuilt:"
+        echo path
+      echo ""
+    of OperationModes.staticLib:
+      discard buildStaticLib(buildInfo)
 
 proc main() =
   processArgs()
